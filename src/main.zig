@@ -1,12 +1,13 @@
 const std = @import("std");
 const Address = std.net.Address;
-const allocator = std.heap.page_allocator;
+const glb_allocator = std.heap.page_allocator;
+const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const ArgList = ArrayList([]const u8);
 
 fn getArgs() !ArgList {
-    var arglist = ArgList.init(allocator);
-    var argIter = try std.process.argsWithAllocator(allocator);
+    var arglist = ArgList.init(glb_allocator);
+    var argIter = try std.process.argsWithAllocator(glb_allocator);
     while (true) {
         const arg = argIter.next() orelse break;
         try arglist.append(arg);
@@ -25,6 +26,8 @@ fn eprint(comptime fmt: []const u8, args: anytype) void {
 }
 
 pub fn main() !void {
+    const queue = try WorkQueue(u64).new(glb_allocator, 1024);
+    _ = queue;
     const args = try getArgs();
     const port: u16 = if (args.items.len < 2)
         8080
@@ -83,4 +86,45 @@ fn parseIP(ipv4: []const u8) ![4]u8 {
     var converter = IPv4ConverterState.new(ipv4);
     const addr = try converter.calc();
     return addr.fields;
+}
+
+fn WorkQueue(comptime ty: type) type {
+    return struct {
+        buffer: []ty,
+        size: usize,
+        sem_prod: std.Thread.Semaphore,
+        sem_cons: std.Thread.Semaphore,
+        lock: std.Thread.Mutex,
+        ptr_prod: usize,
+        ptr_cons: usize,
+
+        fn new(allocator: Allocator, buffer_size: usize) !@This() {
+            var queue: @This() = .{
+                .buffer = try allocator.alloc(ty, buffer_size),
+                .size = buffer_size,
+                .sem_prod = std.Thread.Semaphore{ .permits = buffer_size },
+                .sem_cons = std.Thread.Semaphore{},
+                .lock = std.Thread.Mutex{},
+            };
+            queue.sem_prod.post();
+        }
+
+        fn push(self: *@This(), value: ty) void {
+            self.sem_prod.wait();
+            self.lock.lock();
+            self.buffer[self.ptr_prod] = value;
+            self.ptr_prod = (self.ptr_prod + 1) % self.buffer.len;
+            self.self.lock.unlock();
+            self.sem_cons.post();
+        }
+
+        fn pop(self: *@This(), value: ty) void {
+            self.sem_cons.wait();
+            self.lock.lock();
+            self.buffer[self.ptr_cons] = value;
+            self.ptr_cons = (self.ptr_cons + 1) % self.buffer.len;
+            self.self.lock.unlock();
+            self.sem_prod.post();
+        }
+    };
 }
