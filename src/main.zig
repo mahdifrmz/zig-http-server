@@ -26,9 +26,22 @@ fn eprint(comptime fmt: []const u8, args: anytype) void {
     std.fmt.format(writer, fmt, args) catch {};
 }
 
-fn show(value: u64) void {
-    std.time.sleep((value % 4) * 1000 * 1000 * 1000);
-    print("-> {}\n", .{value});
+fn handleClient(connection: std.net.StreamServer.Connection) !void {
+    // load home page data
+    const home_page = try std.fs.cwd().openFile("./public/index.html", .{});
+    const content_length = try home_page.getEndPos();
+    var buffer = try glb_allocator.alloc(u8, content_length);
+    _ = try home_page.readAll(buffer);
+    // send HTTP header
+    try std.fmt.format(connection.stream.writer(), "HTTP/1.1 200 OK\r\nContent-Length: {d}\r\n\r\n", .{content_length});
+    // send HTTP body
+    try connection.stream.writeAll(buffer);
+    // close connectrion
+    connection.stream.close();
+}
+
+fn handleClientRoutine(connection: std.net.StreamServer.Connection) void {
+    handleClient(connection) catch {};
 }
 
 pub fn main() !void {
@@ -44,15 +57,11 @@ pub fn main() !void {
     try server.listen(std.net.Address.initIp4(try comptime parseIP("0.0.0.0"), port));
     print("Zerver listening on port {d}\n", .{port});
 
-    var pool = try Pool(u64).new(glb_allocator, 4);
-    for (0..14) |i| {
-        pool.spawn(show, i);
+    var pool = try Pool(std.net.StreamServer.Connection).new(glb_allocator, 4);
+    while (true) {
+        const client = try server.accept();
+        pool.spawn(handleClientRoutine, client);
     }
-    pool.terminate();
-    // while (true) {
-    //     const client = try server.accept();
-    //     _ = client;
-    // }
 }
 
 fn parseIP(ipv4: []const u8) ![4]u8 {
