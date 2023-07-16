@@ -15,7 +15,7 @@ fn WorkQueue(comptime ty: type) type {
         ptr_cons: usize,
         allocator: Allocator,
 
-        fn new(allocator: Allocator, buffer_size: usize) !@This() {
+        fn init(allocator: Allocator, buffer_size: usize) !@This() {
             return .{
                 .buffer = try allocator.alloc(ty, buffer_size),
                 .size = buffer_size,
@@ -47,7 +47,7 @@ fn WorkQueue(comptime ty: type) type {
             return value;
         }
 
-        fn destroy(self: *@This()) void {
+        fn deinit(self: *@This()) void {
             self.allocator.free(self.buffer);
         }
     };
@@ -98,13 +98,13 @@ pub fn Pool(comptime Arg: type) type {
             }
         }
 
-        pub fn new(allocator: Allocator, thread_count: usize) !@This() {
+        pub fn init(allocator: Allocator, thread_count: usize) !@This() {
             var self = @This(){
                 .handles = try allocator.alloc(Thread, thread_count),
                 .work_queue = try allocator.create(Queue),
                 .allocator = allocator,
             };
-            self.work_queue.* = try Queue.new(allocator, 1024);
+            self.work_queue.* = try Queue.init(allocator, 1024);
             for (0..thread_count) |i| {
                 self.handles[i] = try Thread.spawn(.{}, worker, .{self.work_queue});
             }
@@ -120,8 +120,9 @@ pub fn Pool(comptime Arg: type) type {
             for (0..self.handles.len) |i| {
                 self.handles[i].join();
             }
-            self.work_queue.destroy();
+            self.work_queue.deinit();
             self.allocator.destroy(self.work_queue);
+            self.allocator.free(self.handles);
         }
     };
 }

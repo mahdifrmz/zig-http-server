@@ -1,5 +1,11 @@
 const std = @import("std");
 const Pool = @import("./pool.zig").Pool;
+const controller = @import("./controller.zig");
+const handleClientRoutine = controller.handleClientRoutine;
+const getFlag = controller.getFlag;
+const initFlag = controller.initFlag;
+const ZerverConnection = controller.ZerverConnection;
+
 const Address = std.net.Address;
 const glb_allocator = std.heap.page_allocator;
 const Allocator = std.mem.Allocator;
@@ -26,24 +32,6 @@ fn eprint(comptime fmt: []const u8, args: anytype) void {
     std.fmt.format(writer, fmt, args) catch {};
 }
 
-fn handleClient(connection: std.net.StreamServer.Connection) !void {
-    // load home page data
-    const home_page = try std.fs.cwd().openFile("./public/index.html", .{});
-    const content_length = try home_page.getEndPos();
-    var buffer = try glb_allocator.alloc(u8, content_length);
-    _ = try home_page.readAll(buffer);
-    // send HTTP header
-    try std.fmt.format(connection.stream.writer(), "HTTP/1.1 200 OK\r\nContent-Length: {d}\r\n\r\n", .{content_length});
-    // send HTTP body
-    try connection.stream.writeAll(buffer);
-    // close connectrion
-    connection.stream.close();
-}
-
-fn handleClientRoutine(connection: std.net.StreamServer.Connection) void {
-    handleClient(connection) catch {};
-}
-
 pub fn main() !void {
     const args = try getArgs();
     const port: u16 = if (args.items.len < 2)
@@ -53,15 +41,22 @@ pub fn main() !void {
             eprint("Error: Invalid port number\n", .{});
             std.process.exit(1);
         };
+    const address = std.net.Address.initIp4(try comptime parseIP("0.0.0.0"), port);
     var server = std.net.StreamServer.init(.{});
-    try server.listen(std.net.Address.initIp4(try comptime parseIP("0.0.0.0"), port));
+    try server.listen(address);
     print("Zerver listening on port {d}\n", .{port});
-
-    var pool = try Pool(std.net.StreamServer.Connection).new(glb_allocator, 4);
-    while (true) {
+    initFlag();
+    var pool = try Pool(ZerverConnection).init(glb_allocator, 4);
+    while (!getFlag()) {
         const client = try server.accept();
-        pool.spawn(handleClientRoutine, client);
+
+        pool.spawn(handleClientRoutine, .{
+            .client = client,
+            .allocator = glb_allocator,
+            .address = address,
+        });
     }
+    pool.terminate();
 }
 
 fn parseIP(ipv4: []const u8) ![4]u8 {
