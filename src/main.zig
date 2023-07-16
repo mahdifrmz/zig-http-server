@@ -1,9 +1,10 @@
 const std = @import("std");
 const Pool = @import("./pool.zig").Pool;
 const controller = @import("./controller.zig");
+const state = @import("./state.zig");
 const handleClientRoutine = controller.handleClientRoutine;
-const getFlag = controller.getFlag;
-const initFlag = controller.initFlag;
+const getFlag = state.getFlag;
+const initFlag = state.initFlag;
 const ZerverConnection = controller.ZerverConnection;
 
 const Address = std.net.Address;

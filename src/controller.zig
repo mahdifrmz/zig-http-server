@@ -1,26 +1,16 @@
 const std = @import("std");
+const state = @import("./state.zig");
 const Connection = std.net.StreamServer.Connection;
 const Allocator = std.mem.Allocator;
 const Address = std.net.Address;
+const setFlag = state.setFlag;
 
-const Flag = std.atomic.Atomic(bool);
 pub const ZerverConnection = struct {
     client: Connection,
     allocator: Allocator,
     address: Address,
 };
 
-var end_flag: Flag = undefined;
-
-pub fn getFlag() bool {
-    return end_flag.load(std.atomic.Ordering.SeqCst);
-}
-fn setFlag() void {
-    end_flag.store(true, std.atomic.Ordering.SeqCst);
-}
-pub fn initFlag() void {
-    end_flag = Flag.init(false);
-}
 fn fakeConnection(address: Address) !void {
     const stream = try std.net.tcpConnectToAddress(address);
     stream.close();
